@@ -25,7 +25,7 @@ class BridgeComponent extends PreSonus.ControlSurfaceComponent {
         }
         // Clock: the client's MIDI CC on the bridgeTick control (see the surface file).
         // Do NOT use Host.GUI.addIdleTask with a script object here: on Studio One
-        // 5.5.2 that crashed the app at launch (EXC_BAD_ACCESS in cclgui's timer).
+        // 5.5.2 that crashed the app at launch.
         if (this.bridge) this.bridge.beat(true); // publish clockErrors even if no clock fires
     }
 
@@ -39,6 +39,13 @@ class BridgeComponent extends PreSonus.ControlSurfaceComponent {
         if (!this.bridge) return;
         try { this.bridge.tick(source); }
         catch (e) { Host.Console.writeLine("studio-one-mcp: tick failed: " + e); }
+    }
+
+    // Driven by the surface <Timer> (see the surface file): polling the mailbox from
+    // the timer means the bridge needs no MIDI loopback. Where the host has no
+    // surface timer this never fires and the MIDI doorbell (paramChanged) is the clock.
+    onTick_bridgePoll(/* time */) {
+        this.clockTick("timer");
     }
 
     paramChanged(param) {

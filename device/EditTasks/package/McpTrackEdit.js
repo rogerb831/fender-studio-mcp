@@ -35,7 +35,7 @@ function mteWrite(name, value) {
 
 function mteFn(obj, key) { return !!obj && typeof obj[key] === "function"; }
 
-// Which of `names` exist on obj, and as what (for the probe).
+// Which of `names` exist on obj, and as what (for the inspect op).
 function mteShape(obj, names) {
 	var out = {};
 	if (!obj) return null;
@@ -81,7 +81,7 @@ function mteTracks(context) {
 	return out;
 }
 
-// JSON-safe view of a host object, for the eval probe (as the bridge's describe).
+// JSON-safe view of a host object, for eval (as the bridge's describe).
 function mteDescribe(value, depth) {
 	if (value === null || value === undefined) return value === undefined ? "<undefined>" : null;
 	var t = typeof value;
@@ -112,7 +112,7 @@ function mteApply(context, ops) {
 	for (var i = 0; i < ops.length; i++) {
 		var op = ops[i] || {};
 		var r = { op: op.op };
-		if (op.op === "probe") {
+		if (op.op === "inspect") {
 			r.context = mteShape(context, ["functions", "mainTrackList", "editor", "iterator"]);
 			r.functions = mteShape(fns, ["root", "moveToFolder", "colorizeEvent", "renameEvent", "addTrack", "removeTrack", "executeImmediately"]);
 			r.root = mteShape(root, ["environment", "createFunctions"]);
@@ -195,7 +195,7 @@ function mteApply(context, ops) {
 				}
 			}
 		} else if (op.op === "eval") {
-			// { code, depth }: probe code run with this task's context (editor, functions,
+			// { code, depth }: code run with this task's context (editor, functions,
 			// trackList), only when installed with --allow-eval. For exploring the model.
 			if (!McpEditConfig.allowEval) r.error = "eval is disabled; reinstall the device with --allow-eval";
 			else {

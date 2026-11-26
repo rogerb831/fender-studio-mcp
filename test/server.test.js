@@ -53,11 +53,11 @@ async function call(name, args = {}) {
 test('exposes the song, live and audio tools', async () => {
   const names = (await client.listTools()).tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
-    'audio_analyze', 'audio_capture',
+    'audio_analyze', 'audio_analyze_track', 'audio_capabilities', 'audio_capture',
     'live_add_bus', 'live_add_instrument_track', 'live_add_marker', 'live_add_plugin', 'live_add_send', 'live_add_track', 'live_arranger', 'live_bounce', 'live_bypass_insert', 'live_changes', 'live_channels', 'live_command', 'live_delete_marker',
-    'live_edit_events', 'live_edit_notes', 'live_eval', 'live_events', 'live_inserts', 'live_list_commands', 'live_macros', 'live_markers', 'live_meters', 'live_mix_snapshot', 'live_notes', 'live_plugin_params', 'live_plugin_snapshot', 'live_plugins', 'live_record', 'live_record_setup',
+    'live_edit_events', 'live_edit_notes', 'live_eval', 'live_events', 'live_inserts', 'live_list_commands', 'live_macros', 'live_markers', 'live_meters', 'live_mix_snapshot', 'live_notes', 'live_panner', 'live_plugin_params', 'live_plugin_snapshot', 'live_plugins', 'live_record', 'live_record_setup',
     'live_redo', 'live_rename_marker', 'live_run_macro', 'live_save', 'live_select_events', 'live_select_track', 'live_sends', 'live_set_automation',
-    'live_set_channel', 'live_set_loop', 'live_set_plugin_param', 'live_set_send', 'live_set_transport', 'live_song', 'live_status', 'live_takes', 'live_tempo', 'live_time_signature', 'live_track_edit', 'live_track_state',
+    'live_set_channel', 'live_set_loop', 'live_set_plugin_param', 'live_set_send', 'live_set_transport', 'live_show', 'live_song', 'live_status', 'live_takes', 'live_tempo', 'live_time_signature', 'live_track_edit', 'live_track_state',
     'live_tracks', 'live_transport', 'live_undo', 'live_write_automation',
     'song_diff', 'song_history', 'song_list', 'song_read',
   ]);
@@ -103,15 +103,15 @@ test('song_read: unknown song is a tool error, not a crash', async () => {
 
 test('song_history: autosaves newest first, also for autosave-only songs', async () => {
   const { data } = await call('song_history', { song: 'Demo Tune' });
-  assert.deepEqual(data.map((h) => h.file.split('/').pop()), ['Demo Tune 2 (Autosaved).song', 'Demo Tune 1 (Autosaved).song']);
+  assert.deepEqual(data.map((h) => h.file.split(/[\\/]/).pop()), ['Demo Tune 2 (Autosaved).song', 'Demo Tune 1 (Autosaved).song']);
   assert.equal((await call('song_history', { song: 'Sketch' })).data.length, 1);
 });
 
 test('song_diff: against the newest autosave by default, older to newer; errors without autosaves', async () => {
   const { data } = await call('song_diff', { song: 'Demo Tune' });
   // The save (2026-01-02) is newer than both autosaves, so the newest autosave is "from".
-  assert.equal(data.from.split('/').pop(), 'Demo Tune 2 (Autosaved).song');
-  assert.equal(data.to.split('/').pop(), 'Demo Tune.song');
+  assert.equal(data.from.split(/[\\/]/).pop(), 'Demo Tune 2 (Autosaved).song');
+  assert.equal(data.to.split(/[\\/]/).pop(), 'Demo Tune.song');
   assert.deepEqual([data.changes, data.diff], [0, []]);
   const none = await call('song_diff', { song: 'Old Tune' });
   assert.equal(none.isError, true);

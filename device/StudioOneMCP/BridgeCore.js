@@ -170,6 +170,7 @@ class Bridge {
             case "setAutomation": return this.fromComponent(c => c.setAutomation(args));
             case "pluginParams": return this.fromComponent(c => c.pluginParams(args));
             case "setPluginParam": return this.fromComponent(c => c.setPluginParam(args));
+            case "panner": return this.panner(args);
             case "eval": return this.evaluate(args);
             default: return fail("unknown op: " + op);
         }
@@ -778,6 +779,63 @@ class Bridge {
         if (isFail(r)) return r;
         const added = uniqueTracks(list).filter(t => before.indexOf(t) < 0).map(t => String(t.name));
         return { added: added, trackCount: uniqueTracks(list).length };
+    }
+
+    // A channel's panner, through the document object model (track.channel.Panner).
+    // "type" is the panner kind ("Simple" for a plain stereo pan; a surround/object
+    // song gives a surround/object panner with more parameters). get reports the
+    // type and every known parameter present; set writes one by name (default
+    // "pan"). Parameter names depend on the panner type, so get first.
+    panner(args) {
+        const list = trackList();
+        if (!list) return fail("track list not available");
+        const want = args.channel || args.track;
+        if (!want) return fail("channel is required");
+        let track = null;
+        for (const t of uniqueTracks(list)) { if (has(t, "name", "string") && t.name === want) { track = t; break; } }
+        if (!track) return fail("no track named " + want);
+        const ch = has(track, "channel", "object") ? track.channel : null;
+        const P = ch && has(ch, "Panner", "object") ? ch.Panner : null;
+        if (!P || !has(P, "findParameter", "function")) return fail("no panner on " + want);
+        const type = has(P, "type", "string") ? P.type : null;
+        const read = (name) => {
+            try {
+                const p = P.findParameter(name);
+                if (!p) return null;
+                return {
+                    value: p.value,
+                    text: typeof p.string === "string" ? p.string : null,
+                    min: p.min, max: p.max,
+                    normalized: has(p, "getNormalized", "function") ? p.getNormalized() : null,
+                };
+            } catch (_) { return null; }
+        };
+        if (args.set) {
+            const name = args.param || "pan";
+            let p;
+            try { p = P.findParameter(name); } catch (_) { p = null; }
+            if (!p) return fail("no panner parameter \"" + name + "\" (panner type " + type + "; call get to list them)");
+            try {
+                if (args.text !== undefined) {
+                    if (!has(p, "fromString", "function")) return fail("parameter " + name + " does not take text");
+                    p.fromString(String(args.text), true);
+                } else if (args.normalized !== undefined) {
+                    if (typeof args.normalized !== "number" || args.normalized < 0 || args.normalized > 1) return fail("normalized must be 0..1");
+                    if (!has(p, "setNormalized", "function")) return fail("parameter " + name + " has no normalised value");
+                    p.setNormalized(args.normalized, true);
+                } else if (args.value !== undefined) {
+                    if (!has(p, "setValue", "function")) return fail("parameter " + name + " cannot be set");
+                    p.setValue(args.value, true);
+                } else {
+                    return fail("give one of text, normalized or value");
+                }
+            } catch (e) { return fail("could not set " + name + ": " + (e && e.message || e)); }
+            return { channel: track.name, type: type, param: name, after: read(name) };
+        }
+        const CANDIDATES = ["pan", "x", "y", "z", "angle", "elevation", "size", "divergence", "rotation", "spread", "center", "centerBalance", "lfe", "width", "front", "rear", "depth", "focus"];
+        const params = {};
+        for (const n of CANDIDATES) { const r = read(n); if (r) params[n] = r; }
+        return { channel: track.name, type: type, params: params };
     }
 
     // Arbitrary script, for exploring the host object model. Off unless the

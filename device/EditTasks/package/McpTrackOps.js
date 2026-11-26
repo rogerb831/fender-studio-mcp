@@ -3,7 +3,7 @@
 // sections, markers and time signatures. Each op is mtoOps[name](context, op)
 // and returns the fields of its result; failures are { error }.
 //
-// Seen on Studio One 5.5.2 (probed 2026-09-30):
+// Seen on Studio One 5.5.2:
 //  - functions.root.createIterator() walks every track in song order, the global
 //    Marker Track and Arranger Track first; their events are the markers and the
 //    arranger sections, with names, live.

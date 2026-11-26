@@ -1,6 +1,10 @@
 // live_bounce over a fake bridge.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { bounce } from '../src/bounce.js';
 
 function bridge({ playing = false } = {}) {
@@ -52,6 +56,26 @@ test('toNewTrack: originals muted, the new same-named track reported', async () 
   assert.ok(r.original.every((e) => e.muted));
   assert.equal(r.newTrack.index, 3);
   assert.equal(r.newTrack.events[0].name, 'Gtr(3)');
+});
+
+test('returns the rendered .wav from the song Bounces folder (for audio_analyze)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 's1bounce-'));
+  mkdirSync(join(dir, 'Bounces'), { recursive: true });
+  const wav = join(dir, 'Bounces', 'Gtr.wav');
+  writeFileSync(wav, 'RIFF'); // freshly written -> newest in the folder
+  const fileUrl = pathToFileURL(join(dir, 'Song.song')).href;
+  const b = bridge();
+  // Same fake bridge, but the song op reports this saved song's file URL.
+  const call = (op, a) => (op === 'song' ? Promise.resolve({ transport: { playing: false }, selectedTracks: ['Keys'], fileUrl }) : b.call(op, a));
+  const r = await bounce(call, { track: 'Gtr' });
+  assert.equal(r.wav, wav);
+  assert.match(r.note, /audio_analyze/);
+});
+
+test('wav is null when the song is unsaved (no fileUrl) and the note omits the hand-off', async () => {
+  const r = await bounce(bridge().call, { track: 'Gtr' });
+  assert.equal(r.wav, null);
+  assert.doesNotMatch(r.note, /audio_analyze/);
 });
 
 test('refuses: playing, ambiguous or unknown track, no events, bad mode', async () => {

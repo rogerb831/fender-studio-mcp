@@ -8,14 +8,17 @@ An [MCP](https://modelcontextprotocol.io) server for **Fender Studio Pro 8** (th
 > - **No IAC Driver needed** on macOS: the server publishes its own CoreMIDI port, `studio-one-mcp`, and every server process shares it. Studio Pro reconnects to it by name.
 > - **Audio capture and analysis** (`audio_capture`, `audio_analyze`): records Studio Pro's output through a Core Audio process tap (no BlackHole, no loopback driver, nothing to route) and reports integrated/short-term loudness, LRA, true peak, clipping, crest factor, band energy, low-end mono, width and correlation, with an optional reference comparison and a PNG.
 > - Settle delays after edits, because Studio Pro 8 applies some command edits just after the device script returns.
+> - **Windows support**: the control-surface bridge runs on Studio Pro 8's own surface timer, so it needs **no virtual-MIDI loopback** (no loopMIDI/IAC) on Windows; profile, path and media-URL handling are fixed for Windows too. `doctor` reports the capture method it can use.
+> - **Audio on Windows**: `audio_capture` records via WASAPI loopback, and `audio_analyze_track` bounces a track and analyses it — the driver-independent path that works even with an exclusive ASIO output. `audio_capabilities` tells the agent which method to use.
+> - **New live tools**: `live_show` (Show page / setlist) and `live_panner` (surround/stereo panner).
 
 | Layer | How | Needs Studio Pro running? |
 |---|---|---|
 | **`song_*` tools** | Parse `.song` files, which are zip archives of XML: tempo map, meter, markers, arranger sections, tracks, takes, clips, mixer, plug-in inserts and media. | No. Reflects the last save or autosave. |
 | **`live_*` tools** | A small control-surface device, installed into Studio Pro, that answers requests through a local **file mailbox**. It uses the app's own JavaScript device SDK. | Yes |
-| **`audio_*` tools** | Record the app's output with a macOS process tap, then analyse the WAV in Python. | Yes (macOS 14.4+) |
+| **`audio_*` tools** | Record the app's output (macOS process tap or Windows WASAPI loopback) or bounce a track, then analyse the WAV in Python. | Yes |
 
-Status: works day-to-day on **Studio Pro 8.1.2, macOS**. The upstream project was developed on Studio One 5.5.2; Windows is wired in but untested here, and the audio tools are macOS only.
+Status: works day-to-day on **Studio Pro 8.1.2 (macOS)** and **Studio Pro 8.2 (Windows)**. The upstream project was developed on Studio One 5.5.2. On Studio Pro 8 the bridge is driven by the app's surface timer, so no virtual MIDI is required; the audio tools work on macOS (process tap) and Windows (WASAPI loopback, or a bounce — see the ASIO note under the audio tools).
 
 Much of the text below still says "Studio One": read it as Studio Pro 8. Internal names (the `studio-one-mcp` device in External Devices, the MIDI port, the data folder, `STUDIO_ONE_*` variables) are kept as they were, so the fork stays a drop-in replacement for the original install.
 
@@ -64,7 +67,9 @@ An independent project, not affiliated with or endorsed by Fender or PreSonus. S
 | `live_notes` | Notes in an instrument track's parts: pitch (number and name, middle C = C3), velocity 0 to 127, start, end and length in seconds, start in beats. Read-only. |
 | `live_edit_notes` | Edit an instrument track's notes: transpose, set or change velocity, move, change length, quantize (to a grid like `1/16`, `1/8T` or `1/8.`, with a strength), delete (with a filter), add notes. Filters by pitch and beat range. Runs through a small edit-task extension installed with the device, so no dialog opens, and Studio One's own quantize setting is left alone. |
 | `live_track_edit` | By track name: rename, recolour (`"#rrggbb"`), remove, **move** it before or after another track, **route** its output to a bus or output, move it into a **folder** (creating the folder if asked), or **rename its events** (numbered in time order if asked). Rename and colour are not on the undo stack; route is set back with the "before" value it returns; remove, move, folder and event renames undo. Move, route, folder and event renames run through the **MCP Track Edit** task in the extension. |
-| `live_bounce` | Bounce all events on a track, in place or to a new track (the originals are muted), without dialogs. One undo reverts it; the rendered file stays in the song's Bounces folder. Mixdown and stem export open dialogs, so they are not offered. |
+| `live_bounce` | Bounce all events on a track, in place or to a new track (the originals are muted), without dialogs. Returns the rendered `.wav` path (in the song's Bounces folder) to pass to `audio_analyze`. One undo reverts the edit; the file stays on disk. Mixdown and stem export open dialogs, so they are not offered. |
+| `live_show` | Drive the Show page (live performance): setlist items (select 1-10, next/previous, add/remove/enable/disable/duplicate/loop), patches and players, playback mode, and Perform. Only when a Show is open. |
+| `live_panner` | Read or set a channel's panner. `get` returns the panner type and its parameters — a stereo channel has a `Simple` panner with `pan`; a surround or Dolby Atmos song exposes more (angle, elevation, size…). Set one by raw value, display text (`"L25"`) or normalised value. |
 | `live_record` | Record, which writes a take into the song. Only runs with `confirm: true`. It can arm a track first, start from a position, set precount, and stop after N seconds. |
 | `live_channels` | Live mixer: volume, pan, mute, solo, record-arm, input monitoring, automation mode, and routing (input and output by name) for each channel. To change a track's output, use `live_track_edit` with `route`. |
 | `live_set_channel` | Set volume, pan, mute, solo, record-arm or input monitoring on a channel. |
@@ -73,8 +78,10 @@ An independent project, not affiliated with or endorsed by Fender or PreSonus. S
 | `live_list_commands` | Discover command names, optionally with whether each is enabled right now. |
 | `live_changes` | What changed in the song since the previous call: tracks added, removed, renamed or reordered, events on each track, mixer changes (levels, mute and solo, arm, monitor, automation mode, output, plug-ins), tempo, loop, markers and sections. It compares snapshots, so it sees what you did by hand as well, as net changes. |
 | `live_eval` | Run JavaScript inside Studio One to explore its object model. Opt-in only. |
-| `audio_capture` | Record what Studio Pro plays to a WAV (32-bit float) through a macOS process tap. If the transport is stopped it plays the requested range, with click and precount off, then puts the playhead back. Never records into the song. macOS 14.4+. |
+| `audio_capture` | Record what Studio Pro plays to a WAV (32-bit float): a macOS process tap (macOS 14.4+), or WASAPI loopback on Windows. If the transport is stopped it plays the requested range, with click and precount off, then puts the playhead back. Never records into the song. On Windows an exclusive ASIO output bypasses loopback (the result warns and recommends a bounce); use `audio_analyze_track` or an exported mixdown instead. |
 | `audio_analyze` | Analyse a capture: integrated and short-term loudness, LRA, true peak and clipped samples, crest factor, energy per band, low-end mono, width and correlation, per-section stats, and an optional comparison with a reference file or an earlier capture. Writes a PNG overview. |
+| `audio_capabilities` | Which capture method works on this machine — the backend, any WASAPI loopback endpoints, and whether to prefer `audio_capture` or a bounce. Call it first so the agent can choose. |
+| `audio_analyze_track` | Bounce one track to a WAV (offline render, with its inserts), run `audio_analyze`, then undo the bounce so the song is unchanged. Driver-independent — the reliable way to measure audio on Windows. One track's audio, not the full mix. |
 
 ## Install
 
@@ -92,11 +99,11 @@ npm run setup
 
 1. It finds your Studio Pro (or Studio One) user profile.
 2. It installs the **MCP Bridge** device into it, and a small extension (`Extensions/studio-one-mcp.edittasks`) that lets the bridge edit notes.
-3. It checks for a virtual MIDI port, which acts as the bridge's doorbell:
+3. It checks for a virtual MIDI port, the bridge's doorbell. On **Studio Pro 8 this is optional** — the bridge runs on the app's surface timer — so it is only needed on older Studio One (5/6), which has no script timer:
    - **macOS:** nothing to do. If the IAC Driver is online it is used; otherwise the server publishes its own port named `studio-one-mcp` while it runs.
-   - **Windows:** install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and add a port named `studio-one-mcp`.
+   - **Windows:** nothing to install for Studio Pro 8. For older Studio One, install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) and add a port named `studio-one-mcp`.
 4. It registers this checkout with Claude Code (all projects, as `studio-one`) and, if you want, Claude Desktop. It backs up the Desktop config before editing it. For any other client, it prints the JSON to paste.
-5. It shows the one step you do in the app: **Preferences… (⌘,)** on a Mac, **Options** on Windows → **External Devices → Add… → studio-one-mcp → MCP Bridge**. Set **Receive From** to `studio-one-mcp` (or your IAC bus), and **Send To** to None. Restart Studio Pro first if it was running. The port only exists while the MCP server runs: start your MCP client before (or restart it after) opening Studio Pro, and the app reconnects to it by name.
+5. It shows the one step you do in the app: **Preferences… (⌘,)** on a Mac, **Options** on Windows → **External Devices → Add… → studio-one-mcp → MCP Bridge**. On Studio Pro 8 **Receive From** can be left None (the surface timer drives the bridge); on older Studio One set it to `studio-one-mcp` (or your IAC bus). Set **Send To** to None. Restart Studio Pro first if it was running — it loads device scripts only at startup. On older Studio One the MIDI port only exists while the MCP server runs, so start your MCP client before (or restart it after) opening Studio Pro, and the app reconnects to it by name.
 6. It waits for Studio Pro to answer.
 
 Use `--yes` to accept the defaults, `--dry-run` to see what it would do, and `--profile <dir>` to pick a profile.
@@ -127,15 +134,16 @@ To update: `git pull`, `npm install`, then `npm run setup` again, and restart St
 
 | Env var | Default |
 |---|---|
-| `STUDIO_ONE_SONGS` | `~/Documents/Studio One/Songs` (colon-separated list) |
-| `STUDIO_ONE_PROFILE` | newest `…/PreSonus/Studio One *` user folder |
-| `STUDIO_ONE_MCP_MIDI_PORT` | first MIDI output whose name contains `IAC`; otherwise the server's own port |
+| `STUDIO_ONE_SONGS` | `~/Documents/Studio One/Songs` (platform-separated list: `:` on macOS/Linux, `;` on Windows) |
+| `STUDIO_ONE_PROFILE` | newest `…/PreSonus` or `…/Fender/Studio Pro *` user folder |
+| `STUDIO_ONE_MCP_MIDI_PORT` | first MIDI output whose name contains `IAC`; otherwise the server's own port (only used as the doorbell fallback; not needed on Studio Pro 8) |
 | `STUDIO_ONE_MCP_VIRTUAL_PORT` | `studio-one-mcp` (name of the port the server publishes on macOS) |
+| `STUDIO_ONE_MCP_CAPTURE_RATE` | `48000` (sample rate for Windows WASAPI loopback capture) |
 | `STUDIO_ONE_MCP_HOME` | `~/Library/Application Support/studio-one-mcp` (the mailbox lives here) |
 
 ## How the live bridge works
 
-Studio One runs control-surface scripts in an embedded SpiderMonkey engine. Scripts can read and write files but cannot open sockets, so the bridge is a folder. Studio One 5 also gives scripts no usable timer, so the bridge is event-driven. After writing a request, the server presses MIDI note 119 on a virtual MIDI bus (the macOS IAC Driver). The device's surface file maps that note, as a trigger control, to a toggle on a component parameter, and the component answers on each change.
+Studio One runs control-surface scripts in an embedded SpiderMonkey engine. Scripts can read and write files but cannot open sockets, so the bridge is a folder. On **Studio Pro 8** the device's surface file declares a `<Timer>`, so the component polls the mailbox on its own — no MIDI required. Older Studio One (5/6) has no script timer, so there the bridge is event-driven, the fallback the diagram below shows: after writing a request the server presses MIDI note 119 on a virtual MIDI bus (the macOS IAC Driver), which the surface file maps — as a trigger control — to a component parameter, and the component answers on each change.
 
 ```mermaid
 flowchart LR

@@ -3,3 +3,5 @@ scipy
 matplotlib
 pyloudnorm
 soundfile
+# Windows/Linux capture (capture_win.py) records via WASAPI loopback; macOS uses the Swift tap.
+soundcard; platform_system != "Darwin"

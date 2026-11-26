@@ -4,9 +4,10 @@ import { studioOneProfiles, songRoots, mailboxDir } from '../paths.js';
 import { deviceStatus } from './device.js';
 import {
   midiOutputs, pickMidiPort, studioOneRunning, claudeCodeAvailable, claudeCodeRegistered,
-  desktopConfigPath, desktopRegistered, isMac,
+  desktopConfigPath, desktopRegistered, isMac, isWindows,
 } from './checks.js';
 import { bridgeStatus, call } from '../bridge.js';
+import { audioCapabilities } from '../audio.js';
 
 const PASS = 'pass';
 const FAIL = 'fail';
@@ -44,12 +45,15 @@ export async function runChecks({ profile, live = true } = {}) {
   const port = pickMidiPort(midi.names);
   if (!midi.ok) add('MIDI', FAIL, midi.error, 'Run npm install in the fender-studio-mcp folder');
   else if (!port && isMac && !process.env.STUDIO_ONE_MCP_MIDI_PORT)
-    add('Virtual MIDI port', PASS, 'no IAC bus; the server publishes its own port "studio-one-mcp" while it runs', null);
+    add('MIDI nudge port', PASS, 'no IAC bus; the server publishes its own port "studio-one-mcp" while it runs', null);
   else if (!port)
-    add('Virtual MIDI port', FAIL, `outputs: ${midi.names.join(', ') || 'none'}`, isMac
-      ? 'Audio MIDI Setup → Window → Show MIDI Studio → IAC Driver → tick "Device is online"'
-      : 'Install loopMIDI (tobias-erichsen.de/software/loopmidi.html), add a port named "studio-one-mcp"');
-  else add('Virtual MIDI port', PASS, port, null);
+    // Not fatal: Studio Pro 8 drives the bridge from a surface timer, so the MIDI
+    // doorbell is only a fallback (e.g. for Studio One 5/6, which have no timer).
+    // Real breakage shows up as "Bridge answers" failing below.
+    add('MIDI nudge port (fallback)', WARN, 'none found — the bridge runs on the Studio Pro 8 surface timer; MIDI is only a fallback', isMac
+      ? 'Only if the bridge does not answer below: Audio MIDI Setup → IAC Driver → tick "Device is online"'
+      : 'Only if the bridge does not answer below: install loopMIDI and add a port named "studio-one-mcp"');
+  else add('MIDI nudge port', PASS, port, null);
 
   const running = studioOneRunning();
   add('Studio One running', running ? PASS : INFO, running ? 'yes' : 'no', running ? null : 'Start Studio One to use the live_* tools');
@@ -79,6 +83,22 @@ export async function runChecks({ profile, live = true } = {}) {
           `Check the MCP Bridge device's Receive From is "${port || 'the virtual MIDI port'}", then restart Studio One. A Scripting Error dialog left open can also block it.`);
       }
     }
+  }
+
+  // Audio: which capture method works here (for audio_capture / audio_analyze_track).
+  try {
+    const audio = await audioCapabilities();
+    const eps = audio.loopbackEndpoints;
+    if (!audio.ready)
+      add('Audio capture', INFO, `${audio.captureBackend} not set up`, 'Optional: npm run build:audio (for audio_capture / audio_analyze / audio_analyze_track)');
+    else if (audio.recommended === 'capture')
+      add('Audio capture', PASS, `${audio.captureBackend}${eps && eps.length ? ` → ${eps.join(', ')}` : ''}`, null);
+    else
+      add('Audio capture', WARN, `${audio.captureBackend}: no loopback endpoint`, isWindows
+        ? 'Loopback cannot hear an exclusive ASIO output — use audio_analyze_track (offline bounce), or set a Windows Audio driver'
+        : 'Build the capturer: npm run build:audio');
+  } catch (e) {
+    add('Audio capture', INFO, `could not check: ${e.message}`, null);
   }
 
   const cc = claudeCodeAvailable();

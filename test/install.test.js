@@ -10,6 +10,14 @@ import { unzipSync, strFromU8 } from 'fflate';
 
 const script = fileURLToPath(new URL('../scripts/install-device.js', import.meta.url));
 
+// The device stores file URLs unencoded and with forward slashes (see fileUrl in
+// src/setup/device.js), so a Windows home like "C:\…\mcp home" becomes
+// "file:///C:/…/mcp home". Match that transform here instead of assuming POSIX.
+const mailboxUrl = (home) => {
+  const p = home.replace(/\\/g, '/');
+  return `file://${p.startsWith('/') ? '' : '/'}${p}/mailbox/`;
+};
+
 function run(args, home) {
   return execFileSync(process.execPath, [script, ...args], {
     env: { ...process.env, STUDIO_ONE_MCP_HOME: home },
@@ -33,7 +41,7 @@ test('installs every device file plus a generated BridgeConfig.js', () => {
   const cfg = readFileSync(join(target, 'BridgeConfig.js'), 'utf8');
   const config = JSON.parse(cfg.slice(cfg.indexOf('{'), cfg.lastIndexOf('}') + 1));
   // Studio One stores file URLs unencoded; a %20 here would point nowhere.
-  assert.equal(config.mailbox, `file://${home}/mailbox/`);
+  assert.equal(config.mailbox, mailboxUrl(home));
   assert.equal(config.allowEval, false);
   assert.ok(existsSync(join(home, 'mailbox')));
 });
@@ -62,7 +70,7 @@ test('installs the edit-task extension: metadata plus a ZIP package with the mai
   const files = unzipSync(readFileSync(join(ext, 'scripts', 'studio-one-mcp.package')));
   assert.deepEqual(Object.keys(files).sort(), ['McpEdit.js', 'McpEditConfig.js', 'McpTrackEdit.js', 'McpTrackOps.js', 'classfactory.xml', 'metainfo.xml']);
   const cfg = strFromU8(files['McpEditConfig.js']);
-  assert.equal(JSON.parse(cfg.slice(cfg.indexOf('{'), cfg.lastIndexOf('}') + 1)).mailbox, `file://${home}/mailbox/`);
+  assert.equal(JSON.parse(cfg.slice(cfg.indexOf("{"), cfg.lastIndexOf("}") + 1)).mailbox, mailboxUrl(home));
 });
 
 test('missing profile is a clear error', () => {

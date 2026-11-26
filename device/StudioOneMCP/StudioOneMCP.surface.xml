@@ -16,6 +16,11 @@
 		<!-- Component-param mappings only take effect inside <Global> (cf. CC121). -->
 		<Global>
 			<Toggle control="bridgeTick" param="bridgeTick"/>
+			<!-- Studio Pro 8 supports a surface <Timer>: poll the mailbox from it so
+			     the bridge needs no MIDI loopback on Windows; the MIDI doorbell above
+			     stays as a fallback where no timer is available. Idle ticks are cheap
+			     (one request.json read; heartbeat every 2 s). -->
+			<Timer interval="200" onTick="onTick_bridgePoll"/>
 		</Global>
 		<DeviceMapping device="MixerConsole" name="mixer">
 			<ScrollBank target="AllBank" pagesize="256" name="channels">

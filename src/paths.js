@@ -1,8 +1,13 @@
 // Where things live on this machine. Everything is overridable by env var so the
 // server works for other Studio One versions and non-default song folders.
 import { homedir, platform } from 'node:os';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
+
+// Split a PATH-style env var on the platform's list separator (":" on POSIX,
+// ";" on Windows). Splitting on ":" would shatter Windows paths at the drive
+// colon ("C:\\Songs" -> ["C", "\\Songs"]).
+const splitPaths = (s) => s.split(delimiter).filter(Boolean);
 
 const home = homedir();
 const isMac = platform() === 'darwin';
@@ -16,7 +21,10 @@ export function studioOneProfiles() {
   const out = [];
   for (const r of roots) {
     if (!existsSync(r)) continue;
-    for (const d of readdirSync(r)) if (/^Studio (One|Pro)/.test(d)) out.push(join(r, d));
+    // withFileTypes so crash dumps like "Studio Pro_8_1_0_…Win x64_….dmp" that sit
+    // next to the real "Studio Pro 8" profile dir and match the name regex are skipped.
+    for (const d of readdirSync(r, { withFileTypes: true }))
+      if (d.isDirectory() && /^Studio (One|Pro)/.test(d.name)) out.push(join(r, d.name));
   }
   return out.sort(byVersionDesc); // newest version first
 }
@@ -29,7 +37,7 @@ function byVersionDesc(a, b) {
 }
 
 export function songRoots() {
-  if (process.env.STUDIO_ONE_SONGS) return process.env.STUDIO_ONE_SONGS.split(':').filter(Boolean);
+  if (process.env.STUDIO_ONE_SONGS) return splitPaths(process.env.STUDIO_ONE_SONGS);
   return [join(home, 'Documents/Studio One/Songs'), join(home, 'Documents/Studio Pro/Songs')].filter(existsSync);
 }
 
@@ -41,14 +49,15 @@ export function studioOneApps() {
   const out = [];
   for (const r of roots) {
     if (!existsSync(r)) continue;
-    for (const d of readdirSync(r)) if (/^Studio (One|Pro)/.test(d)) out.push(isMac ? join(r, d, 'Contents') : join(r, d));
+    for (const d of readdirSync(r, { withFileTypes: true }))
+      if (d.isDirectory() && /^Studio (One|Pro)/.test(d.name)) out.push(isMac ? join(r, d.name, 'Contents') : join(r, d.name));
   }
   return out.sort(byVersionDesc);
 }
 
 // Where plug-in presets live: the user's own first, then the factory ones.
 export function presetRoots() {
-  if (process.env.STUDIO_ONE_PRESETS) return process.env.STUDIO_ONE_PRESETS.split(':').filter(Boolean);
+  if (process.env.STUDIO_ONE_PRESETS) return splitPaths(process.env.STUDIO_ONE_PRESETS);
   const user = [join(home, 'Documents/Studio One/Presets'), join(home, 'Documents/Studio Pro/Presets')];
   return [...user, ...studioOneApps().map((a) => join(a, 'Presets'))].filter(existsSync);
 }
@@ -56,7 +65,7 @@ export function presetRoots() {
 // Studio One's built-in remote-control map (surfacedata XML): curated parameter
 // names for every PreSonus plug-in, keyed by plug-in class.
 export function remoteMapFiles() {
-  if (process.env.STUDIO_ONE_REMOTE_MAP) return process.env.STUDIO_ONE_REMOTE_MAP.split(':').filter(Boolean);
+  if (process.env.STUDIO_ONE_REMOTE_MAP) return splitPaths(process.env.STUDIO_ONE_REMOTE_MAP);
   // The Windows path is a guess (only the Mac layout has been seen); a miss just means fewer names.
   const rel = isMac ? 'PlugIns/remoteservice.bundle/Contents/Resources/device/remotedevice.surfacedata' : 'Plugins/remoteservice/device/remotedevice.surfacedata';
   return studioOneApps().map((a) => join(a, rel)).filter(existsSync);

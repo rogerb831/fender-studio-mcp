@@ -81,15 +81,15 @@ test("route: an instrument track's note channel (Studio Pro 8) does not make its
   assert.match(r[1].error, /ambiguous: Gtr/, 'two audio channels with one name still are');
 });
 
-test('folder moves named tracks into a folder track; probe describes what it finds', () => {
+test('folder moves named tracks into a folder track; inspect describes what it finds', () => {
   const t = load();
   const s = studio();
-  t.request([{ op: 'folder', folder: 'Band', tracks: ['Vox', 'Gtr', 'Drums'] }, { op: 'folder', folder: 'Vox', tracks: ['Gtr'] }, { op: 'probe' }]);
+  t.request([{ op: 'folder', folder: 'Band', tracks: ['Vox', 'Gtr', 'Drums'] }, { op: 'folder', folder: 'Vox', tracks: ['Gtr'] }, { op: 'inspect' }]);
   t.task.performEdit(s.context);
-  const [folder, notFolder, probe] = t.result().results;
+  const [folder, notFolder, inspect] = t.result().results;
   assert.deepEqual([folder.moved, folder.missing, s.folder.children], [['Vox', 'Gtr'], ['Drums'], ['Vox', 'Gtr']]);
   assert.match(notFolder.error, /no folder track named Vox/);
-  assert.deepEqual([probe.channelCount, probe.firstChannels, probe.deviceFunctions, probe.trackCount], [4, ['Vox', 'Gtr', 'Bus 1', 'Main'], { connectChannel: 'function' }, 3]);
+  assert.deepEqual([inspect.channelCount, inspect.firstChannels, inspect.deviceFunctions, inspect.trackCount], [4, ['Vox', 'Gtr', 'Bus 1', 'Main'], { connectChannel: 'function' }, 3]);
 });
 
 test('renameEvents names every event in time order (numbered on request); folder create makes and expands it', () => {
@@ -112,7 +112,7 @@ test('renameEvents names every event in time order (numbered on request); folder
 
 test('missing host members are reported, not called', () => {
   const t = load();
-  t.request([{ op: 'route', channel: 'A', to: 'B' }, { op: 'folder', folder: 'F', tracks: [] }, { op: 'probe' }]);
+  t.request([{ op: 'route', channel: 'A', to: 'B' }, { op: 'folder', folder: 'F', tracks: [] }, { op: 'inspect' }]);
   t.task.performEdit({ functions: {} });
   const r = t.result().results;
   assert.match(r[0].error, /no channel named A/);
@@ -221,7 +221,7 @@ test('moveTrack goes through a temporary folder in one undo group; bad requests 
   assert.match(bad[1].error, /next to itself/);
 });
 
-test('renameMarker by number; the eval probe is off without allowEval', () => {
+test('renameMarker by number; eval is off without allowEval', () => {
   const { results, s } = run([{ op: 'renameMarker', marker: 2, name: 'Drop' }, { op: 'eval', code: 'return 1' }]);
   assert.equal(results[0].before.name, 'Hook');
   assert.deepEqual(s.log, [['rename', 'Drop']]);

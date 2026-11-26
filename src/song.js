@@ -108,10 +108,17 @@ export function buildTimeline(songRoot) {
 
 // ---- media pool -------------------------------------------------------------
 
+// A .song can carry media paths as POSIX ("file:///tmp/…") or Windows
+// ("file:///C:/…") file URLs regardless of the host reading it. Node's
+// fileURLToPath throws on Windows for a POSIX file URL (and vice versa), so
+// decode the URL directly instead of relying on host-platform semantics.
 function fileUrlToPath(url) {
   if (!url) return null;
+  if (!url.startsWith('file:')) return url;
   try {
-    return url.startsWith('file:') ? fileURLToPath(url) : url;
+    let p = decodeURIComponent(new URL(url).pathname);
+    if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1); // "/C:/foo" -> "C:/foo"
+    return p;
   } catch {
     return url;
   }

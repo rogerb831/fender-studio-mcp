@@ -41,7 +41,12 @@ function open() {
   const out = new (loadMidi().Output)();
   const names = [];
   for (let i = 0; i < out.getPortCount(); i++) names.push(out.getPortName(i));
-  const index = names.findIndex((n) => n.toLowerCase().includes(PORT.toLowerCase()));
+  // Prefer an exact (case-insensitive) match, then fall back to substring. Without
+  // the exact pass, PORT "SSL V-MIDI Port 1" would substring-match "…Port 10/11/12"
+  // (enumerated first on Windows) and nudge the wrong bus.
+  const want = PORT.toLowerCase();
+  let index = names.findIndex((n) => n.toLowerCase() === want);
+  if (index < 0) index = names.findIndex((n) => n.toLowerCase().includes(want));
   if (index >= 0) {
     out.openPort(index);
     output = out;

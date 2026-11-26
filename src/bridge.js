@@ -39,9 +39,14 @@ export function call(op, args = {}, { timeoutMs = 5000, dir = mailboxDir, nudge 
     renameSync(tmp, join(dir, 'request.json'));
     const deadline = Date.now() + timeoutMs;
     let lastNudge = 0;
+    let nudgeError = null;
     while (Date.now() < deadline) {
       if (Date.now() - lastNudge >= RENUDGE_MS) {
-        nudge();
+        // Best-effort: on Studio Pro 8 the device's own surface timer polls the
+        // mailbox, so a missing MIDI loopback is not fatal — the response still
+        // arrives within the timer interval. The nudge only speeds older Studio
+        // One versions (5/6) that have no script timer.
+        try { nudge(); } catch (e) { nudgeError = e; }
         lastNudge = Date.now();
       }
       await new Promise((r) => setTimeout(r, 20));
@@ -51,7 +56,10 @@ export function call(op, args = {}, { timeoutMs = 5000, dir = mailboxDir, nudge 
         return res.result;
       }
     }
-    throw new Error(`Studio One did not answer "${op}" within ${timeoutMs}ms. Is it running, with the MCP Bridge device receiving from the MIDI bus?`);
+    throw new Error(
+      `Studio One did not answer "${op}" within ${timeoutMs}ms. Is it running, with a song open and the MCP Bridge device added?` +
+        (nudgeError ? ` (MIDI nudge unavailable — ${nudgeError.message} — relying on the device's surface timer.)` : ''),
+    );
   };
   const p = queue.then(run, run);
   queue = p.catch(() => {});

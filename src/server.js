@@ -31,7 +31,9 @@ import { bounce } from './bounce.js';
 import { diffSongs } from './diff.js';
 import { gridBeats } from './grid.js';
 import { version } from './version.js';
-import { capture, analyze } from './audio.js';
+import { capture, analyze, audioCapabilities, analyzeTrack } from './audio.js';
+import { show, SHOW_ACTIONS } from './show.js';
+import { panner } from './panner.js';
 
 const json = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value, null, 1) }] });
 const fail = (message) => ({ content: [{ type: 'text', text: message }], isError: true });
@@ -413,7 +415,7 @@ server.tool(
 
 server.tool(
   'audio_capture',
-  "Record what the running Studio One plays, to a WAV file (32-bit float, the session's rate), through a macOS process tap: nothing is installed and the audio output is unchanged. If the transport is stopped, it plays from from_seconds / from_bars (or the playhead) for the capture, then stops and puts the playhead back; the metronome click and precount are off while it plays. Audible. Never records in Studio One. Pass the file to audio_analyze. Recordings go to the studio-one-mcp data folder unless out is given.",
+  "Record what the running Studio One plays, to a 32-bit float WAV: on macOS through a Core Audio process tap (nothing installed, the audio output unchanged), on Windows through WASAPI loopback of the output device. If the transport is stopped, it plays from from_seconds / from_bars (or the playhead) for the capture, then stops and puts the playhead back; the metronome click and precount are off while it plays. Audible. Never records in Studio One. Pass the file to audio_analyze. Recordings go to the studio-one-mcp data folder unless out is given. Windows note: loopback captures the whole output-device mix (not just Studio One), and if Studio One's audio device is an exclusive ASIO driver its output bypasses Windows loopback (the result's peakDb is near-silent and carries a warning) — set it to a Windows Audio driver, or analyze a live_bounce instead.",
   {
     seconds: z.number().describe('Length, up to 600'),
     from_seconds: z.number().optional(),
@@ -434,6 +436,26 @@ server.tool(
     plot: z.boolean().optional().describe('Write the PNG (default true)'),
   },
   guard((a) => analyze(a)),
+);
+
+server.tool(
+  'audio_capabilities',
+  "Which audio-capture method to use on this machine, so you can pick before trying. Returns the capture backend, whether it is set up, any WASAPI loopback endpoints (Windows), and a recommended method: \"capture\" (audio_capture — real-time, the full stereo output) or \"bounce\" (live_bounce one track to a WAV, then audio_analyze — offline, driver-independent, per track only). On Windows it cannot read Studio One's audio driver, so \"capture\" is only a candidate: an exclusive ASIO output bypasses WASAPI loopback and a capture comes back near-silent (audio_capture then returns recommend:\"bounce\"). Call this first; fall back to bounce when it says so or when a capture is near-silent.",
+  {},
+  guard(() => audioCapabilities()),
+);
+
+server.tool(
+  'audio_analyze_track',
+  "Measure one track of the running song in a single call: bounce it to a WAV (offline render, through its own inserts), run audio_analyze on that WAV, then undo the bounce so the song is unchanged (the rendered WAV stays in the song's Bounces folder). Driver-independent — the reliable way to measure audio on Windows, since it needs no loopback and works even with an ASIO output. It is one track's audio, not the full stereo mix. The song must be saved to disk. Pass keepBounce:true to leave the bounced event in place; reference to compare against another WAV.",
+  {
+    track: z.string(),
+    mode: z.enum(['inPlace', 'toNewTrack']).optional().describe('How to bounce (default inPlace); both are undone unless keepBounce'),
+    reference: z.string().optional().describe('Another WAV to compare against'),
+    keepBounce: z.boolean().optional().describe('Leave the bounce in the song instead of undoing it'),
+    plot: z.boolean().optional(),
+  },
+  guard((a) => analyzeTrack(call, a)),
 );
 
 server.tool(
@@ -622,9 +644,32 @@ server.tool(
 
 server.tool(
   'live_bounce',
-  "Bounce all events on one track in the running Studio One: inPlace renders them into a single new event (with plug-ins), toNewTrack renders them onto a new track of the same name and mutes the originals. No dialogs; one live_undo reverts it, but the rendered .wav stays in the song's Bounces folder. Exporting a mixdown or stems is not offered: those open dialogs.",
+  "Bounce all events on one track in the running Studio One: inPlace renders them into a single new event (with plug-ins), toNewTrack renders them onto a new track of the same name and mutes the originals. No dialogs; one live_undo reverts the edit, but the rendered .wav stays in the song's Bounces folder. Returns wav: the path to that rendered file — pass it to audio_analyze. This is the driver-independent way to measure audio on Windows (an offline render, so it works even with an ASIO output), but it is one track's audio with its own inserts, not the full stereo mix. Exporting a mixdown or stems is not offered: those open dialogs (analyze a manual Export Mixdown WAV if you need the whole mix).",
   { track: z.string(), mode: z.enum(['inPlace', 'toNewTrack']).optional() },
   guard((a) => bounce(call, a)),
+);
+
+server.tool(
+  'live_show',
+  "Drive the Show page (live performance) in the running Studio One: move through the setlist (nextSetlistItem / prevSetlistItem / selectSetlistItem with number 1-10 / loopSetlistItem), manage it (add/remove/enable/disable/duplicateSetlistItem), switch patches (nextPatch / prevPatch / selectPatch 1-10 / selectMutePatch) and players (nextPlayer / prevPlayer / selectPlayer 1-10), set the playback mode (playbackContinue / playbackStopAtEnd / playbackLoop), or Perform. Only works when a Show is open (Song page → Show); otherwise the action reports it did not run.",
+  {
+    action: z.enum(SHOW_ACTIONS),
+    number: z.number().int().min(1).max(10).optional().describe('Slot 1-10 for selectSetlistItem / selectPatch / selectPlayer'),
+  },
+  guard((a) => show(call, a)),
+);
+
+server.tool(
+  'live_panner',
+  "Read or set a channel's panner in the running Studio One. With just channel, returns the panner type and every parameter it has: a stereo channel has a \"Simple\" panner with pan (0..1), while a surround or Dolby Atmos song gives a surround/object panner with more (e.g. angle, elevation, size). To set, give channel and one of value (raw), text (as Studio One shows it, e.g. \"L25\"), or normalized (0..1), with param (default \"pan\"). Parameter names depend on the panner type, so read first.",
+  {
+    channel: z.string().describe('Track/channel name'),
+    param: z.string().optional().describe('Panner parameter to set (default "pan"); read first to see what exists'),
+    value: z.number().optional().describe('Set the raw value'),
+    text: z.string().optional().describe('Set from display text, e.g. "L25"'),
+    normalized: z.number().min(0).max(1).optional().describe('Set the normalised value (0..1)'),
+  },
+  guard((a) => panner(call, a)),
 );
 
 server.tool(

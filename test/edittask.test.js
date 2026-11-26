@@ -1,6 +1,6 @@
 // The MCP Edit task (device/EditTasks/package/McpEdit.js) under node:vm, with a
 // fake host: mailbox files, and an edit context shaped like the one Studio One
-// 5.5.2 handed the probe (iterator over the selected notes; functions).
+// 5.5.2 handed the edit task (iterator over the selected notes; functions).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -32,7 +32,7 @@ function load() {
   };
 }
 
-// Notes as the probe saw them: pitch, velocity 0..1, startTime/endTime.time in beats.
+// Notes as the task saw them: pitch, velocity 0..1, startTime/endTime.time in beats.
 function editContext(specs, { activeRegion = { id: 'region' } } = {}) {
   const region = { id: 'region' };
   const notes = specs.map(([pitch, start, length, velocity = 0.8]) => ({ pitch, velocity, startTime: { time: start }, endTime: { time: start + length }, region }));
